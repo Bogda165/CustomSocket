@@ -1,0 +1,9 @@
+[package]
+name = "CustomSocket"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+CustomSocket_lib = {path = "CustomSocket_lib"}
+tokio = "1.39.3"
+

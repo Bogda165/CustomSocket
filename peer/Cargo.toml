@@ -1,0 +1,8 @@
+[package]
+name = "peer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+CustomSocket_lib = {path = "../CustomSocket_lib"}
+tokio = { version = "1.0.0", features = ["rt", "rt-multi-thread", "macros"] }
