@@ -1,0 +1,10 @@
+# .gitignore
+
+# Ignore all target folders
+**/target/
+
+# Ignore all Cargo.lock files
+**/Cargo.lock
+
+# Ignore .idea directory
+.idea/
