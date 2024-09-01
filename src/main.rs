@@ -1,74 +1,51 @@
 use std::marker::PhantomData;
 use std::path::Iter;
 use std::sync::Arc;
+use std::thread::spawn;
+use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt};
+use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinHandle;
 use CustomSocket_lib::*;
 use CustomSocket_lib::packet::Packet;
 
 async fn send(socket: &mut CustomSocket) {
     println!("Sned");
-    socket.send("127.0.0.1".to_string(), 8081, vec![80, 81, 82]).await.unwrap()
+    socket.send("127.0.0.1".to_string(), 8090, (1..23).collect(), 0).await.unwrap()
+}
+
+async fn send2(socket: &mut CustomSocket) {
+    println!("Sned");
+    socket.send("127.0.0.1".to_string(), 8090, (24..50).collect(), 1).await.unwrap()
+}
+
+async fn send3(socket: &mut CustomSocket) {
+    println!("Sned");
+    socket.send("127.0.0.1".to_string(), 8090, (51..100).collect(), 2).await.unwrap()
 }
 
 #[tokio::main]
 async fn main() {
-    /*
-    let mut socket = CustomSocket::new("127.0.0.1".to_string(), 8082, SocketType::Recv);
-
-    socket.connect().await.unwrap();
-
-    let handler = tokio::spawn (async move {
-        let mut buffer =  [0u8; 1024];
-        loop {
-            match socket.recv(&mut buffer).await {
-                Ok(len) => {
-                    println ! ("{:?}", & buffer[..len]);
-                }
-                Err(_) => {
-                    println ! ("FUUUCK");
-                }
-            }
-        }
-    });
-
-    println!("Hello world");
-
-    let mut socket2 = CustomSocket::new("127.0.0.1".to_string(), 8084, SocketType::Send);
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    let shared_ready2 = Arc::new(Notify::new());
+    let mut socket2 = CustomSocket::new("127.0.0.1".to_string(), 8085, SocketType::Send, shared_ready2.clone(), Arc::new(Mutex::new(Data::new(0, 0))));
     socket2.connect().await.unwrap();
 
+    send(&mut socket2).await;});
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        let shared_ready2 = Arc::new(Notify::new());
+        let mut socket2 = CustomSocket::new("127.0.0.1".to_string(), 8084, SocketType::Send, shared_ready2.clone(), Arc::new(Mutex::new(Data::new(0, 0))));
+        socket2.connect().await.unwrap();
 
-    let console_handler= tokio::spawn(async move {
-        let stdin = io::stdin();
-        let mut reader = io::BufReader::new(stdin).lines();
+        send2(&mut socket2).await;});
 
-        while let Some(line) = reader.next_line().await.unwrap() {
-            send(&mut socket2).await;
-        }
-    });
 
-    tokio::join!(handler, console_handler);
+    tokio::time::sleep(Duration::from_millis(3)).await;
+    let shared_ready3 = Arc::new(Notify::new());
+    let mut socket3 = CustomSocket::new("127.0.0.1".to_string(), 8086, SocketType::Send, shared_ready3.clone(), Arc::new(Mutex::new(Data::new(0, 0))));
+    socket3.connect().await.unwrap();
 
-     */
-    let vec: Vec<u8> = (0..=255).collect();
-
-    let vector = Packet::vec_from_slice(vec, 10, 4);
-
-    for packet in vector.iter().clone() {
-        println!("{:?}", packet);
-    }
-
-    println!("===========");
-
-    let vector2 = Packet::data_from_vec(vector);
-    println!("{:?}", vector2);
-
-    println!("===========");
-
-    let mut packet = Packet::new(1, 5, 6);
-    packet.set_data(vec![1, 2, 3, 4, 5]);
-
-    let mut buffer = packet.serialize();
-    let _packet = Packet::deserialize(buffer);
-    println!("{:?}", _packet);
+    send3(&mut socket3).await;
 }

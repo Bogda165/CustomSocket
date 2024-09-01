@@ -8,10 +8,10 @@ use CustomIterators::*;
 
 #[derive(Debug)]
 pub struct Packet {
-    message_id: u16,
-    total_packets: u16,
-    packet_id: u16,
-    data: Vec<u8>,
+    pub message_id: u16,
+    pub total_packets: u16,
+    pub packet_id: u16,
+    pub data: Vec<u8>,
 }
 
 impl Packet {
@@ -31,6 +31,7 @@ impl Packet {
     pub fn vec_from_slice(slice: Vec<u8>, packet_size: u16, message_id: u16) -> Vec<Packet> {
         let size = slice.len();
         let total_packets: u16 = (size / packet_size as usize + if size % packet_size as usize != 0 { 1usize } else {0usize}) as u16 ;
+        println!("total_packets: {}", total_packets);
 
         // THE OLD WAY ))))
         /*
@@ -45,7 +46,7 @@ impl Packet {
             .map(|packet_id| {&slice[(packet_id * packet_size) as usize..(((packet_id + 1) * packet_size) as usize).min(size)]})
             .my_zip(
                 (0..total_packets)
-                    .map(|packet_id| {Packet::new(message_id, packet_size, packet_id)}),
+                    .map(|packet_id| {Packet::new(message_id, total_packets, packet_id)}),
         |slice, mut packet| {packet.set_data(slice.to_vec()); packet});
 
 
@@ -83,13 +84,5 @@ impl Packet {
             packet_id: u16::from_be_bytes(buffer[4..6].try_into().unwrap()),
             data: buffer[6..].to_vec(),
         }
-    }
-
-    pub async fn send(&self, sender: &UdpSocket, receiver: &str) -> Result<(), ()> {
-        let data = self.serialize();
-
-        sender.send_to(data.as_slice(), receiver).await.unwrap();
-
-        Ok(())
     }
 }

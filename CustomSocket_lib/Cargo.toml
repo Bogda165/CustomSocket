@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.39.3", features = ["full"]}
 CustomIterators = {path = "../CustomIterators"}
+rand = "0.9.0-alpha.2"
+lazy_static = "1.5.0"
