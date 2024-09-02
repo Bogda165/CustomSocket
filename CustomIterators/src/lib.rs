@@ -43,6 +43,15 @@ pub trait MyZipIterator: Iterator {
 
 impl<I: Iterator> MyZipIterator for I {}
 
+
+//MACROS
+
+macro_rules! println_t {
+    ($($arg:tt)*) => {
+        println!("{}: {}", thread::current().name().unwrap_or("unknown"), format!($($arg)*));
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::Add;

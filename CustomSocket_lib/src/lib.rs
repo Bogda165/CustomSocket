@@ -101,61 +101,6 @@ impl CustomSocket {
         Ok(())
     }
 
-    async fn handler(&mut self, buffer: Vec<u8>) {
-        let packet = Packet::deserialize(buffer);
-        println!("{:?}", packet);
-        let packet_a = packet.total_packets;
-        println!("Received from raw socket: {:?}", packet.data);
-        let message_id = packet.message_id;
-
-        let mut messages = self.messages.lock().await;
-
-        if !messages.contains_key(&packet.message_id) {
-            messages.insert(message_id, Data::new(packet_a as i32, 10));
-            println!("Created position in haspMap");
-        }
-
-        match messages.get_mut(&message_id).unwrap().add(packet) {
-            true => {
-                println!("Foud zero in hasp map");
-                /* condition_var
-                {
-                    let (lock, cv) = &*self.ready;
-                    while let lock = lock.lock().await {
-                        if (*lock) == false {
-                            *lock = true;
-                            cv.notify_all();
-                            //when another thrad is notified it lock the read bool, and set it to false, also it lock data and save it later to ooperate with it)
-                            drop(lock);
-                            break;
-                        }
-                        drop(lock);
-                        println!("CustomSocket handler function-> Look like an error");
-                    }
-                }
-                */
-                //when reciving an data is recomended to wait a bit))) for sure
-                match messages.remove(&message_id) {
-                    None => {
-                        unreachable!("Error wtf????");
-                    }
-                    Some(data) => {
-                        {
-                            let mut share_mem = self.share_mem.lock().await;
-                            *share_mem = data;
-                        }
-                    }
-                }
-                self.ready.notify_waiters();
-                println!("Notify send");
-                //tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-            false => {
-                println!("remain {} packets to finish message", packet_a);
-            }
-        }
-    }
-
     pub async fn recv(&mut self){
 
         loop {
@@ -186,9 +131,16 @@ impl CustomSocket {
                         };
                     }
                     println!("Handler invoked");
-                    self.handler(buffer.to_vec()).await;
 
-                    println!("Handler finished");
+                    let handler_fut = handler(
+                        buffer.to_vec(),
+                        Arc::clone(&self.ready),
+                        Arc::clone(&self.messages),
+                        Arc::clone(&self.share_mem),
+                    );
+
+                    tokio::spawn(handler_fut);
+
                 }
                 SocketType::Send => {
                     println!("Not the right type!!!")
@@ -224,4 +176,48 @@ impl CustomSocket {
         }
     //TODO change later to use a custom sender crate!!!! IDEA is to create a custom handler, that will deal with hube packets of data!!!
     }
+}
+
+async fn handler(
+    buffer: Vec<u8>,
+    ready: Arc<Notify>,
+    messages: Arc<Mutex<HashMap<u16, Data>>>,
+    share_mem: Arc<Mutex<Data>>,
+) {
+    let packet = Packet::deserialize(buffer);
+    println!("{:?}", packet);
+    let packet_a = packet.total_packets;
+    println!("Received from raw socket: {:?}", packet.data);
+    let message_id = packet.message_id;
+
+    let mut messages = messages.lock().await;
+
+    if !messages.contains_key(&packet.message_id) {
+        messages.insert(message_id, Data::new(packet_a as i32, 10));
+        println!("Created position in haspMap");
+    }
+
+    match messages.get_mut(&message_id).unwrap().add(packet) {
+        true => {
+            println!("Foud zero in hasp map");
+            match messages.remove(&message_id) {
+                None => {
+                    unreachable!("Error wtf????");
+                }
+                Some(data) => {
+                    {
+                        let mut share_mem = share_mem.lock().await;
+                        *share_mem = data;
+                    }
+                }
+            }
+            ready.notify_waiters();
+            println!("Notify send");
+        }
+        false => {
+            println!("remain {} packets to finish message", packet_a);
+        }
+    }
+
+    println!("Handler finished");
 }
