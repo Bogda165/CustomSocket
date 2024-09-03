@@ -1,7 +1,8 @@
 pub mod packet;
 
 use std::collections::HashMap;
-
+use std::io::{Error, ErrorKind};
+use std::ops::Deref;
 use tokio::net::UdpSocket;
 use std::sync::{Arc, Condvar};
 use tokio::sync::{RwLock, RwLockWriteGuard, Mutex, MutexGuard, Notify};
@@ -44,7 +45,7 @@ pub struct CustomSocket {
     ready: Arc<Notify>,
     messages: Arc<Mutex<HashMap<u16, Data>>>,
     // add a vector, of data!
-    pub share_mem: Arc<Mutex<Data>>,
+    pub share_mem: Arc<Mutex<Option<Data>>>,
 }
 
 #[derive(Debug)]
@@ -78,7 +79,7 @@ impl Data {
 }
 
 impl CustomSocket {
-    pub fn new(socket_addr: String, port: u16, s_type: SocketType, ready: Arc<Notify>, share_mem: Arc<Mutex<Data>>) -> Self {
+    pub fn new(socket_addr: String, port: u16, s_type: SocketType, ready: Arc<Notify>, share_mem: Arc<Mutex<Option<Data>>>) -> Self {
         let messages: Arc<Mutex<HashMap<u16, Data>>> = Arc::new(Mutex::new(HashMap::new()));
         
         CustomSocket {
@@ -92,8 +93,8 @@ impl CustomSocket {
         }
     }
 
-    pub async fn connect(&mut self) -> Result<(), ()>{
-        let new_socket = UdpSocket::bind(format!("{}:{}", self.socket_addr, self.port)).await.unwrap();
+    pub async fn connect(&mut self) -> Result<(), Error>{
+        let new_socket = UdpSocket::bind(format!("{}:{}", self.socket_addr, self.port)).await?;
 
         let mut tmp = self.socket.write().await;
         *tmp = Some(new_socket);
@@ -112,7 +113,6 @@ impl CustomSocket {
                         match *socket {
                             None => println!("There is no socket((( do not forget to .connect() it)"),
                             Some(ref socket) => {
-                                println!("begin recv from raw socket");
                                 match socket.recv(&mut buffer).await {
                                     // 1) parse a packet -done
                                     // 2) if there are not DATA obj in haspmap for message_id, create a new one, else use data.add function()
@@ -149,20 +149,20 @@ impl CustomSocket {
         }
     }
 
-    async fn send_packet(packet: &mut Packet, sender: &UdpSocket, receiver: &str) -> Result<(), ()> {
+    async fn send_packet(packet: &mut Packet, sender: &UdpSocket, receiver: &str) -> Result<(), Error> {
         println!("{:?}", packet);
         let data = packet.serialize();
 
-        sender.send_to(data.as_slice(), receiver).await.unwrap();
+        sender.send_to(data.as_slice(), receiver).await?;
         Ok(())
     }
 
-    pub async fn send(&self, addr: String, port: u16, buffer: Vec<u8>, message_id: u16) -> Result<(), ()>{
+    pub async fn send(&self, addr: String, port: u16, buffer: Vec<u8>, message_id: u16) -> Result<(), Error>{
         let _socket = self.socket.write().await;
 
         match * _socket{
             None => {
-                Err(())
+                Err(Error::new(ErrorKind::Other, "Socket not connected"))
             }
             Some(ref _socket) => {
                 let packets = Packet::vec_from_slice(buffer, MAGIC_CONST as u16, message_id);
@@ -182,8 +182,8 @@ async fn handler(
     buffer: Vec<u8>,
     ready: Arc<Notify>,
     messages: Arc<Mutex<HashMap<u16, Data>>>,
-    share_mem: Arc<Mutex<Data>>,
-) {
+    share_mem: Arc<Mutex<Option<Data>>>,
+) -> Result<(), Error> {
     let packet = Packet::deserialize(buffer);
     println!("{:?}", packet);
     let packet_a = packet.total_packets;
@@ -197,7 +197,14 @@ async fn handler(
         println!("Created position in haspMap");
     }
 
-    match messages.get_mut(&message_id).unwrap().add(packet) {
+    let message = match messages.get_mut(&message_id) {
+        None => {
+            return Err(Error::new(ErrorKind::Other, "Data from hasp map could not be accessed"))
+        }
+        Some(message) => {message}
+    };
+
+    match message.add(packet) {
         true => {
             println!("Foud zero in hasp map");
             match messages.remove(&message_id) {
@@ -206,8 +213,20 @@ async fn handler(
                 }
                 Some(data) => {
                     {
+                        loop {
+                            let share_mem = share_mem.lock().await;
+                            if let Some(_) = share_mem.deref() {
+
+                            }else {
+                                break
+                            }
+                            drop(share_mem);
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                            println!("Here could be an error!!!");
+                        }
                         let mut share_mem = share_mem.lock().await;
-                        *share_mem = data;
+                        *share_mem = Some(data);
+
                     }
                 }
             }
@@ -220,4 +239,6 @@ async fn handler(
     }
 
     println!("Handler finished");
+
+    Ok(())
 }
