@@ -20,7 +20,7 @@ async fn main() {
             socket.connect().await.unwrap();
 
             println!("Sned");
-            socket.send("127.0.0.1".to_string(), 8090, (1..50).collect(), i).await.unwrap()
+            socket.send("127.0.0.1".to_string(), 8090, (1..50).collect(), 0).await.unwrap()
         };
 
         futures.push(future);

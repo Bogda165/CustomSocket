@@ -43,7 +43,7 @@ pub struct CustomSocket {
     socket: Arc<RwLock<Option<UdpSocket>>>,
     s_type: SocketType,
     ready: Arc<Notify>,
-    messages: Arc<Mutex<HashMap<u16, Data>>>,
+    messages: Arc<Mutex<HashMap<String, Data>>>,
     // add a vector, of data!
     pub share_mem: Arc<Mutex<Option<Data>>>,
 }
@@ -80,7 +80,7 @@ impl Data {
 
 impl CustomSocket {
     pub fn new(socket_addr: String, port: u16, s_type: SocketType, ready: Arc<Notify>, share_mem: Arc<Mutex<Option<Data>>>) -> Self {
-        let messages: Arc<Mutex<HashMap<u16, Data>>> = Arc::new(Mutex::new(HashMap::new()));
+        let messages: Arc<Mutex<HashMap<String, Data>>> = Arc::new(Mutex::new(HashMap::new()));
         
         CustomSocket {
             socket_addr,
@@ -102,37 +102,44 @@ impl CustomSocket {
         Ok(())
     }
 
-    pub async fn recv(&mut self){
+    pub async fn recv(&self){
 
         loop {
             let mut buffer = vec![0u8; 1024];
+            let addr;
             match self.s_type {
                 SocketType::Recv => {
                     {
                         let socket = self.socket.read().await;
                         match *socket {
-                            None => println!("There is no socket((( do not forget to .connect() it)"),
+                            None => {println!("There is no socket((( do not forget to .connect() it)"); continue},
                             Some(ref socket) => {
-                                match socket.recv(&mut buffer).await {
+                                match socket.recv_from(&mut buffer).await {
                                     // 1) parse a packet -done
                                     // 2) if there are not DATA obj in haspmap for message_id, create a new one, else use data.add function()
                                     // 3) if data.add return true, check if ready is false 3`), lock ready mutex, write data from data obj to arc mutex vector(so another thread can read it)
                                     //      notify ready(In another thread(outiside od CustomMutex check if ready is true read data and set ready to false))
                                     // 3`) throw an error can not happend!!!!
-                                    Ok(buffer_size) => {
-                                        println!("Received from raw socket!");
+                                    Ok((buffer_size, _addr)) => {
+                                        //println!("Received from raw socket!");
                                         buffer = buffer[..buffer_size].to_vec();
+                                        addr = _addr;
                                     }
                                     Err(_) => {
                                         println!("Error while receiving");
+                                        continue;
                                     }
                                 }
                             }
                         };
                     }
-                    println!("Handler invoked");
+                    //println!("Handler invoked");
+
+                    let addr = format!("{}:{}", addr.ip() ,addr.port());
+                    //println!("{}", addr);
 
                     let handler_fut = handler(
+                        addr.clone(),
                         buffer.to_vec(),
                         Arc::clone(&self.ready),
                         Arc::clone(&self.messages),
@@ -179,22 +186,23 @@ impl CustomSocket {
 }
 
 async fn handler(
+    addr: String,
     buffer: Vec<u8>,
     ready: Arc<Notify>,
-    messages: Arc<Mutex<HashMap<u16, Data>>>,
+    messages: Arc<Mutex<HashMap<String, Data>>>,
     share_mem: Arc<Mutex<Option<Data>>>,
 ) -> Result<(), Error> {
     let packet = Packet::deserialize(buffer);
     println!("{:?}", packet);
     let packet_a = packet.total_packets;
-    println!("Received from raw socket: {:?}", packet.data);
-    let message_id = packet.message_id;
+    //println!("Received from raw socket: {:?}", packet.data);
+    let message_id = format!("{}|{}", addr, packet.message_id);
 
     let mut messages = messages.lock().await;
 
-    if !messages.contains_key(&packet.message_id) {
-        messages.insert(message_id, Data::new(packet_a as i32, 10));
-        println!("Created position in haspMap");
+    if !messages.contains_key(&message_id) {
+        messages.insert(message_id.clone(), Data::new(packet_a as i32, 10));
+        //println!("Created position in haspMap");
     }
 
     let message = match messages.get_mut(&message_id) {
@@ -221,7 +229,7 @@ async fn handler(
                                 break
                             }
                             drop(share_mem);
-                            tokio::time::sleep(Duration::from_secs(1)).await;
+                            //tokio::time::sleep(Duration::from_secs(1)).await;
                             println!("Here could be an error!!!");
                         }
                         let mut share_mem = share_mem.lock().await;
@@ -231,14 +239,14 @@ async fn handler(
                 }
             }
             ready.notify_waiters();
-            println!("Notify send");
+            //println!("Notify send");
         }
         false => {
             println!("remain {} packets to finish message", packet_a);
         }
     }
 
-    println!("Handler finished");
+    //println!("Handler finished");
 
     Ok(())
 }
