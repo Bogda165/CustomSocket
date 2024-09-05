@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::os::unix::raw::off_t;
 use std::path::Iter;
 use std::sync::Arc;
 use std::thread::spawn;
@@ -33,5 +34,6 @@ async fn main() {
     socket.connect().await.unwrap();
 
     println!("Sned");
-    socket.send("127.0.0.1".to_string(), 8090, (1..50).collect(), 13).await.unwrap()
+    socket.send("127.0.0.1".to_string(), 8090, (1..50).collect(), 13).await.unwrap();
+    println!("WOOOW");
 }
