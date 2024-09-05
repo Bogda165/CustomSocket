@@ -22,9 +22,13 @@ async fn main() {
 
     let handler = tokio::spawn (
         async move {
-            socket.recv().await
+            tokio::join!(
+                socket.recv(),
+                socket.timeout_checker(),
+            );
         }
     );
+
 
     let handler_recv = tokio::spawn(
         async move {
@@ -36,7 +40,8 @@ async fn main() {
                 tokio::spawn(async move {
                     let mut share_mem = shared_mem.lock().await;
                     if let Some(_data) = share_mem.take() {
-                        let data = _data.buffer;
+                        let (ip, data) = (_data.0, _data.1.buffer);
+                        println!("{}", ip);
                         handler_fn(data).await;
                     }else {
                         println!("Unexpected!!!!!!!!!");
