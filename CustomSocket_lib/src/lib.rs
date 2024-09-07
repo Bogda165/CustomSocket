@@ -114,18 +114,22 @@ impl CustomSocket {
         Ok(())
     }
 
-    pub async fn timeout_checker(&self) {
+    pub async fn timeout_checker<F, Fut>(&self, timeout_handler: Arc<F>)
+    where
+        F: Fn(Vec<String>) -> Fut + Send + Sync,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
             match timeout_check(
                 Arc::clone(&self.messages),
                 Arc::clone(&self.timeout),
             ).await {
-                Ok(_) => println!("No timeouts found!"),
+                Ok(_) => {/*println!("No timeouts found!")*/},
                 Err(timeouts) => {
-                    for i in timeouts {
-                        println!("timeouts id: {}", i);
-                    }
+                    tokio::spawn(
+                        timeout_handler(timeouts)
+                    );
                 }
             }
         }
@@ -205,7 +209,7 @@ impl CustomSocket {
                 println!("{:?}", packets);
                 for mut packet in packets {
                     //TODO delete this shit, for checking!
-                    if !(packet.message_id == 13 && packet.packet_id == 2) {
+                    if !(packet.message_id == 3 && packet.packet_id == 2) {
                         Self::send_packet(&mut packet, _socket, format!("{}:{}", addr, port).as_str()).await?;
                         println!("Send one packet -> {:?}", packet.data);
                     }
@@ -323,10 +327,12 @@ pub async fn timeout_check(
     }
 
     //free
+    println!("Locking messages!!!");
     let mut messages = messages.lock().await;
     for i in _remove.iter() {
         messages.remove(i);
     }
+    println!("Unlocking messages");
 
     Err(_remove)
 

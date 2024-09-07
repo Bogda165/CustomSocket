@@ -11,6 +11,12 @@ async fn handler_fn(data: Vec<u8>) {
     println!("{:?}", data);
 }
 
+async fn timeout_handler(timeouts: Vec<String>) {
+    for i in timeouts {
+        println!("{}", i);
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let shared_ready = Arc::new(Notify::new());
@@ -24,7 +30,7 @@ async fn main() {
         async move {
             tokio::join!(
                 socket.recv(),
-                socket.timeout_checker(),
+                socket.timeout_checker(Arc::new(timeout_handler)),
             );
         }
     );

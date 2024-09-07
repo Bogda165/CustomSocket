@@ -5,12 +5,14 @@
 **/peer/target/
 **/CustomSocket_lib/target/
 **/CustomIterators/target/
+**/CustomServer/target/
 
 # Ignore all Cargo.lock files
 **/Cargo.lock
 **/peer/Cargo.lock
 **/CustomSocket_lib/Cargo.lock
 **/CustomIterators/Cargo.lock
+**/CustomSerever/Cargo.lock
 
 # Ignore .idea directory
 .idea/
