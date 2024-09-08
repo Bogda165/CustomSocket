@@ -36,6 +36,26 @@ pub fn increment_counter() {
 pub fn get_counter() -> usize {
     COUNTER.load(Ordering::SeqCst)
 }
+
+pub trait TimeoutHandler {
+    fn timeouts_handler(&mut self, timeouts: Vec<String>) -> impl Future<Output = ()> + Send + Sync;
+}
+
+struct DefaultTimeoutHandler {
+    pub timeout_amount: i32,
+}
+
+impl TimeoutHandler for DefaultTimeoutHandler {
+    fn timeouts_handler(&mut self, timeouts: Vec<String>) -> impl Future<Output = ()> + Send + Sync{
+        async {
+            for timeout in timeouts {
+                println!("Timeout on: {}", timeout);
+                self.timeout_amount += 1;
+            }
+        }
+    }
+}
+
 pub enum SocketType {
     Recv,
     Send,
@@ -105,6 +125,10 @@ impl CustomSocket {
         }
     }
 
+    pub fn get_type(&self) -> &SocketType {
+        &self.s_type
+    }
+
     pub async fn connect(&mut self) -> Result<(), Error>{
         let new_socket = UdpSocket::bind(format!("{}:{}", self.socket_addr, self.port)).await?;
 
@@ -114,10 +138,9 @@ impl CustomSocket {
         Ok(())
     }
 
-    pub async fn timeout_checker<F, Fut>(&self, timeout_handler: Arc<F>)
+    pub async fn timeout_checker<H>(&self, timeout_handler: Arc<Mutex<H>>)
     where
-        F: Fn(Vec<String>) -> Fut + Send + Sync,
-        Fut: Future<Output = ()> + Send + 'static,
+        H: TimeoutHandler + Send + Sync + 'static,
     {
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
@@ -127,9 +150,11 @@ impl CustomSocket {
             ).await {
                 Ok(_) => {/*println!("No timeouts found!")*/},
                 Err(timeouts) => {
-                    tokio::spawn(
-                        timeout_handler(timeouts)
-                    );
+                    let timeout_handler =  timeout_handler.clone();
+                    tokio::spawn(async move{
+                        let mut th_guard = timeout_handler.lock().await;
+                        th_guard.timeouts_handler(timeouts).await;
+                    });
                 }
             }
         }
@@ -335,6 +360,4 @@ pub async fn timeout_check(
     println!("Unlocking messages");
 
     Err(_remove)
-
 }
-
