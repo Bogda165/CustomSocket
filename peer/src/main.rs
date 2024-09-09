@@ -5,7 +5,6 @@ use tokio::io::{self, AsyncBufReadExt};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use CustomSocket_lib::*;
-use CustomSocket_lib::packet::Packet;
 
 async fn handler_fn(data: Vec<u8>) {
     println!("{:?}", data);

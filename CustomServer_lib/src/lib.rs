@@ -1,47 +1,74 @@
+mod receive_handler;
+
 use std::future::Future;
-use std::io::Error;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, AtomicUsize};
+use std::sync::atomic::{AtomicU16};
 use std::sync::atomic::Ordering::SeqCst;
 use CustomSocket_lib::*;
-use tokio::io;
-use tokio::io::AsyncBufReadExt;
 use tokio::sync::{Mutex, Notify};
+use CustomSocket_lib::data::Data;
+use CustomSocket_lib::timeout_handler::TimeoutHandler;
 
-async fn handler_fn_default(data: Vec<u8>) {
+async fn handler_fn(data: Vec<u8>) {
     println!("{:?}", std::str::from_utf8(&*data));
-}
-
-async fn timeout_handler_default(timeouts: Vec<String>) {
-    for i in timeouts {
-        println!("Timeout from: {}", i);
-    }
 }
 
 static MESSAGE_ID: AtomicU16 = AtomicU16::new(0);
 
-async fn handler_fn(data: Vec<u8>) {
-    println!("{:?}", data);
+trait RecvHandler {
+    fn on_recv(&self, data: Vec<u8>) -> impl Future<Output = ()> + Send + Sync;
 }
 
-pub struct CustomServer<H>
+pub struct DefaultRecvHandler {
+    all_data: Arc<Mutex<Vec<Vec<u8>>>>,
+}
+
+impl DefaultRecvHandler {
+    pub fn new() -> Self {
+        DefaultRecvHandler {
+            all_data: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub async fn show_all_messages(&self) {
+        let all_data = self.all_data.clone();
+        let data_g = self.all_data.lock().await;
+        let text = data_g.iter().map(|mes_u8| {std::str::from_utf8(&*mes_u8).unwrap()}).collect::<Vec<&str>>().join(" ");
+        println!("{}", text);
+    }
+}
+
+impl RecvHandler for DefaultRecvHandler {
+    fn on_recv(&self, data: Vec<u8>) -> impl Future<Output=()> + Send + Sync {
+        let all_data = self.all_data.clone();
+        async move {
+            let mut all_data_g = all_data.lock().await;
+            all_data_g.push(data.clone());
+            println!("{:?}", std::str::from_utf8(&*data));
+        }
+    }
+}
+
+pub struct CustomServer<TH, RH>
 where
-    H: TimeoutHandler + Send + Sync + 'static,
+    TH: TimeoutHandler + Send + Sync + 'static,
+    RH: RecvHandler + Send + Sync + 'static,
 {
     socket_recv: Arc<CustomSocket>,
     socket_send: Arc<CustomSocket>,
     shared_ready: Arc<Notify>,
     shared_mem: Arc<Mutex<Option<(String, Data)>>>,
-    pub timeout_handler: Arc<Mutex<H>>,
+    pub timeout_handler: Arc<Mutex<TH>>,
+    pub receive_handler: Arc<RH>,
 }
 
 
-impl<H> CustomServer<H>
+impl<TH, RH> CustomServer<TH, RH>
 where
-    H: TimeoutHandler + Send + Sync + 'static,
-
+    TH: TimeoutHandler + Send + Sync + 'static,
+    RH: RecvHandler + Send + Sync + 'static,
 {
-    pub async fn new(recv_addr: String, recv_port: u16, send_addr: String, send_port: u16, timeout_handler: H) -> Self {
+    pub async fn new(recv_addr: String, recv_port: u16, send_addr: String, send_port: u16, timeout_handler: TH, receive_handler: RH) -> Self {
         let shared_ready = Arc::new(Notify::new());
         let shared_mem = Arc::new(Mutex::new(None));
         let mut socket_recv = CustomSocket::new(recv_addr, recv_port, SocketType::Recv, shared_ready.clone(), shared_mem.clone());
@@ -56,6 +83,7 @@ where
             shared_ready,
             shared_mem,
             timeout_handler: Arc::new(Mutex::new(timeout_handler)),
+            receive_handler: Arc::new(receive_handler),
         }
     }
 
@@ -63,7 +91,11 @@ where
         self.socket_send.clone()
     }
 
-    pub fn set_timeout_handler(&mut self, th: H) {
+    pub fn set_receive_handler(&mut self, rh: RH) {
+        self.receive_handler = Arc::new(rh);
+    }
+
+    pub fn set_timeout_handler(&mut self, th: TH) {
         self.timeout_handler = Arc::new(Mutex::new(th));
     }
 
@@ -79,18 +111,21 @@ where
             }
         });
 
-
         let notify_task = tokio::spawn({
             let shared_ready = self.shared_ready.clone();
             let shared_mem = self.shared_mem.clone();
+            let rh =  self.receive_handler.clone();
             async move {
                 loop {
+                    let rh =  rh.clone();
                     shared_ready.notified().await;
                     println!("Notified");
                     let mut shared_mem = shared_mem.lock().await;
                     if let Some((ip, data)) = shared_mem.take() {
                         println!("{}", ip);
-                        tokio::spawn(handler_fn(data.buffer));
+                        //add passing a receiving handler
+                        //let rh = self.receive_handler.clone();
+                        tokio::spawn(async move {rh.on_recv(data.buffer).await;});
                     } else {
                         println!("Unexpected!!!!!!!!!");
                         panic!("WTF!!!!!!!");
@@ -106,26 +141,3 @@ where
         self.socket_send.send(addr, port, buffer, MESSAGE_ID.load(SeqCst).clone()).await.unwrap()
     }
 }
-/*
-#[tokio::main]
-async fn main() {
-    let mut server = Arc::new(CustomServer::new("127.0.0.1".to_string(), 8090, "127.0.0.1".to_string(), 8091).await);
-
-    let _server = server.clone();
-    let recv = _server.start();
-
-
-    let send = tokio::spawn(async move {
-        let stdin = io::stdin();
-        let mut reader = io::BufReader::new(stdin).lines();
-
-        while let Ok(Some(line)) = reader.next_line().await {
-            println!("{}", line);
-            server.send("127.0.0.1".to_string(), 8090, line.as_bytes().to_vec()).await;
-        }
-    });
-
-    tokio::join!(recv, send);
-}
-
-*/

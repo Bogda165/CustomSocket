@@ -1,4 +1,10 @@
-pub mod packet;
+mod packet;
+pub mod data;
+pub mod timeout_handler;
+
+use crate::packet::Packet;
+use crate::data::Data;
+use crate::timeout_handler::TimeoutHandler;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -6,21 +12,15 @@ use std::hash::Hash;
 use std::io::{Error, ErrorKind};
 use std::ops::Deref;
 use tokio::net::UdpSocket;
-use std::sync::{Arc, Condvar};
-use tokio::sync::{RwLock, RwLockWriteGuard, Mutex, MutexGuard, Notify};
-use crate::packet::Packet;
+use std::sync::Arc;
+use tokio::sync::{RwLock, Mutex, Notify};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread::sleep;
 use std::time::{Duration};
 use lazy_static::lazy_static;
-use rand::random;
 use tokio::time::Instant;
-//Custom Socket allow only one therad reciver!!!
 // the struct of each packet -> message id, number of packet per message, packet id.
 
 //each time new data is ready conditional variable will be notified, and data can be requested from customSocket!!!!
-
-// Be carefull the recommended time between each send is more the 1 mills
 
 static MAGIC_CONST: i32 = 10;
 static MAGIC_CONST_TIMEOUT: u16 = 2000;
@@ -29,31 +29,12 @@ lazy_static! {
     static ref COUNTER: AtomicUsize = AtomicUsize::new(0);
 }
 
-pub fn increment_counter() {
+fn increment_counter() {
     COUNTER.fetch_add(1, Ordering::SeqCst);
 }
 
-pub fn get_counter() -> usize {
+fn get_counter() -> usize {
     COUNTER.load(Ordering::SeqCst)
-}
-
-pub trait TimeoutHandler {
-    fn timeouts_handler(&mut self, timeouts: Vec<String>) -> impl Future<Output = ()> + Send + Sync;
-}
-
-struct DefaultTimeoutHandler {
-    pub timeout_amount: i32,
-}
-
-impl TimeoutHandler for DefaultTimeoutHandler {
-    fn timeouts_handler(&mut self, timeouts: Vec<String>) -> impl Future<Output = ()> + Send + Sync{
-        async {
-            for timeout in timeouts {
-                println!("Timeout on: {}", timeout);
-                self.timeout_amount += 1;
-            }
-        }
-    }
 }
 
 pub enum SocketType {
@@ -61,11 +42,6 @@ pub enum SocketType {
     Send,
 }
 
-struct DataWithIp {
-    ip: String,
-    data: Data,
-}
-// TODO here implement sending of a huge data and recieving
 pub struct CustomSocket {
     socket_addr: String,
     port: u16,
@@ -76,36 +52,6 @@ pub struct CustomSocket {
     timeout: Arc<Mutex<HashMap<String, (Instant, u16)>>>,
     // add a vector, of data!
     pub share_mem: Arc<Mutex<Option<(String, Data)>>>,
-}
-
-#[derive(Debug)]
-pub struct Data {
-    pub buffer: Vec<u8>,
-    packet_a: i32,
-    packet_size: u16,
-}
-
-impl Data {
-    pub fn new(packet_a: i32, packet_size: u16) -> Data{
-        //TODO change magic val packet_size
-        let buffer = vec![0; (packet_a * packet_size as i32) as usize];
-
-        Data {
-            packet_a,
-            buffer,
-            packet_size,
-        }
-    }
-    //return true if amount of packet is 0
-    pub fn add(&mut self, packet: Packet) -> bool{
-        let start = (packet.packet_id * self.packet_size) as usize;
-        let end = ((packet.packet_id + 1) * self.packet_size) as usize;
-        self.buffer.splice(start..end, packet.data);
-
-        self.packet_a -= 1;
-
-        self.packet_a == 0
-    }
 }
 
 impl CustomSocket {
@@ -160,7 +106,7 @@ impl CustomSocket {
         }
     }
 
-    pub async fn recv(&self){
+    pub async fn recv(&self) {
         loop {
             let mut buffer = vec![0u8; 1024];
             let addr;
@@ -169,7 +115,10 @@ impl CustomSocket {
                     {
                         let socket = self.socket.read().await;
                         match *socket {
-                            None => {println!("There is no socket((( do not forget to .connect() it)"); continue},
+                            None => {
+                                println!("There is no socket((( do not forget to .connect() it)");
+                                continue
+                            },
                             Some(ref socket) => {
                                 match socket.recv_from(&mut buffer).await {
                                     // 1) parse a packet -done
@@ -178,7 +127,6 @@ impl CustomSocket {
                                     //      notify ready(In another thread(outiside od CustomMutex check if ready is true read data and set ready to false))
                                     // 3`) throw an error can not happend!!!!
                                     Ok((buffer_size, _addr)) => {
-                                        //println!("Received from raw socket!");
                                         buffer = buffer[..buffer_size].to_vec();
                                         addr = _addr;
                                     }
@@ -190,10 +138,8 @@ impl CustomSocket {
                             }
                         };
                     }
-                    //println!("Handler invoked");
 
                     let addr = format!("{}:{}", addr.ip() ,addr.port());
-                    //println!("{}", addr);
 
                     let handler_fut = handler(
                         addr.clone(),
@@ -254,7 +200,8 @@ async fn handler(
     messages: Arc<Mutex<HashMap<String, Data>>>,
     share_mem: Arc<Mutex<Option<(String, Data)>>>,
     timeout: Arc<Mutex<HashMap<String, (Instant, u16)>>>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+{
     let packet = Packet::deserialize(buffer);
     println!("{:?}", packet);
     let packet_a = packet.total_packets;
@@ -325,10 +272,11 @@ async fn handler(
     Ok(())
 }
 
-pub async fn timeout_check(
+async fn timeout_check(
     messages: Arc<Mutex<HashMap<String, Data>>>,
     timeout: Arc<Mutex<HashMap<String, (Instant, u16)>>>,
-) -> Result<(), Vec<String>> {
+) -> Result<(), Vec<String>>
+{
     let now = Instant::now();
     let mut _remove = Vec::<String>::new();
 
@@ -352,12 +300,10 @@ pub async fn timeout_check(
     }
 
     //free
-    println!("Locking messages!!!");
     let mut messages = messages.lock().await;
     for i in _remove.iter() {
         messages.remove(i);
     }
-    println!("Unlocking messages");
 
     Err(_remove)
 }

@@ -1,32 +1,12 @@
 use std::future::Future;
-use std::marker::PhantomData;
-use std::os::unix::raw::off_t;
-use std::path::Iter;
 use std::sync::Arc;
-use std::thread::spawn;
 use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt};
-use CustomServer::CustomServer;
+use CustomServer_lib::CustomServer;
+use CustomServer_lib::DefaultRecvHandler;
 use tokio::sync::{Mutex, Notify};
-use tokio::task::JoinHandle;
 use CustomSocket_lib::*;
-use CustomSocket_lib::packet::Packet;
-use futures::future::join_all;
-
-pub struct DefaultTimeoutHandler {
-    pub timeout_amount: i32,
-}
-
-impl TimeoutHandler for DefaultTimeoutHandler {
-    fn timeouts_handler(&mut self, timeouts: Vec<String>) -> impl Future<Output = ()> + Send + Sync {
-        async {
-            for timeout in timeouts {
-                println!("Timeout on: {}", timeout);
-                self.timeout_amount += 1;
-            }
-        }
-    }
-}
+use CustomSocket_lib::timeout_handler::TimeoutHandler;
 
 struct MyTimeoutHandler {
     socket_send: Option<Arc<CustomSocket>>,
@@ -65,14 +45,6 @@ impl TimeoutHandler for MyTimeoutHandler {
         }
     }
 }
-impl DefaultTimeoutHandler {
-    fn new() -> Self {
-        DefaultTimeoutHandler {
-            timeout_amount: 0,
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() {
     /*
@@ -101,24 +73,35 @@ async fn main() {
     println!("WOOOW");
      */
     let timeout_handler = MyTimeoutHandler::new();
-    let mut server = Arc::new(CustomServer::new("127.0.0.1".to_string(), 8090, "127.0.0.1".to_string(), 8091, timeout_handler).await);
+    let receive_handler = DefaultRecvHandler::new();
+    let mut server = Arc::new(CustomServer::new(
+        "127.0.0.1".to_string(), 8090, "127.0.0.1".to_string(), 8091, timeout_handler, receive_handler,
+    ).await);
 
     server.timeout_handler.lock().await.set_socket(server.get_ss());
 
     let _server = server.clone();
     let recv = _server.start();
 
-
+    let __server = server.clone();
     let send = tokio::spawn(async move {
         let stdin = io::stdin();
         let mut reader = io::BufReader::new(stdin).lines();
 
         while let Ok(Some(line)) = reader.next_line().await {
             println!("{}", line);
-            server.send("127.0.0.1".to_string(), 8090, line.as_bytes().to_vec()).await;
+            __server.send("127.0.0.1".to_string(), 8090, line.as_bytes().to_vec()).await;
         }
     });
 
-    tokio::join!(recv, send);
+    let another_thread = tokio::spawn(async move {
+        loop {
+            let rh = server.receive_handler.clone();
+            rh.show_all_messages().await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    tokio::join!(recv, send, another_thread);
 
 }

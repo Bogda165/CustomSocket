@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 CustomSocket_lib = {path = "CustomSocket_lib"}
-CustomServer = {path = "CustomServer"}
+CustomServer_lib = {path = "CustomServer_lib" }
 tokio = "1.39.3"
 futures = "0.3.30"
 
