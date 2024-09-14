@@ -1,9 +1,10 @@
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{self, AsyncBufReadExt};
+use tokio::io::{self, AsyncBufReadExt, BufReader};
 use CustomServer_lib::CustomServer;
 use CustomServer_lib::DefaultRecvHandler;
+use tokio::fs::File;
 use tokio::sync::{Mutex, Notify};
 use CustomSocket_lib::*;
 use CustomSocket_lib::timeout_handler::TimeoutHandler;
@@ -72,10 +73,14 @@ async fn main() {
     socket.send("127.0.0.1".to_string(), 8090, (1..50).collect(), 13).await.unwrap();
     println!("WOOOW");
      */
+    let file_path = "data12341234.txt";
+    //let file = File::create(file_path).await.expect("TODO: panic message");
+    //println!("{:?}", file.metadata().await.unwrap());
+
     let timeout_handler = MyTimeoutHandler::new();
     let receive_handler = DefaultRecvHandler::new();
     let mut server = Arc::new(CustomServer::new(
-        "127.0.0.1".to_string(), 8090, "127.0.0.1".to_string(), 8091, timeout_handler, receive_handler,
+        "127.0.0.1".to_string(), 8081, "127.0.0.1".to_string(), 8082, timeout_handler, receive_handler,
     ).await);
 
     server.timeout_handler.lock().await.set_socket(server.get_ss());
@@ -90,15 +95,49 @@ async fn main() {
 
         while let Ok(Some(line)) = reader.next_line().await {
             println!("{}", line);
-            __server.send("127.0.0.1".to_string(), 8090, line.as_bytes().to_vec()).await;
+            __server.send("127.0.0.1".to_string(), 8081, line.as_bytes().to_vec()).await;
         }
     });
 
     let another_thread = tokio::spawn(async move {
+        let queue = server.send_queue.clone();
+
         loop {
+            /*
             let rh = server.receive_handler.clone();
             rh.show_all_messages().await;
             tokio::time::sleep(Duration::from_secs(5)).await;
+            */
+
+            let file = match File::open(file_path).await {
+                Ok(file) => {file}
+                Err(..) => {
+                    println!("Couldn't open the file");
+                    tokio::time::sleep(Duration::from_secs(4)).await;
+                    continue
+                }
+            };
+            let mut reader = BufReader::new(file).lines();
+            loop {
+                if let Some(line) = reader.next_line().await.unwrap() {
+                    let mut qg = queue.lock().await;
+                    let parts: Vec<&str> = line.split(',').collect();
+                    if parts.len() == 3 {
+                        let ip = parts[0].trim().to_string();
+                        let port = parts[1].trim().parse::<u16>().unwrap();
+                        let message = parts[2].trim().to_string();
+                        qg.push_back((ip, port, message.as_bytes().to_vec()));
+                    }
+                } else {
+                    println!("No line found");
+                    break;
+                }
+            }
+            // Clear the file at the end
+            if let Err(e) = File::create(file_path).await {
+                eprintln!("Failed to clear the file: {}", e);
+            }
+            tokio::time::sleep(Duration::from_secs(4)).await;
         }
     });
 

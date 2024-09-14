@@ -4,7 +4,7 @@ pub trait TimeoutHandler {
     fn timeouts_handler(&mut self, timeouts: Vec<String>) -> impl Future<Output = ()> + Send + Sync;
 }
 
-struct DefaultTimeoutHandler {
+pub struct DefaultTimeoutHandler {
     pub timeout_amount: i32,
 }
 

@@ -1,9 +1,11 @@
 mod receive_handler;
 
+use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16};
 use std::sync::atomic::Ordering::SeqCst;
+use std::time::Duration;
 use CustomSocket_lib::*;
 use tokio::sync::{Mutex, Notify};
 use CustomSocket_lib::data::Data;
@@ -14,8 +16,9 @@ async fn handler_fn(data: Vec<u8>) {
 }
 
 static MESSAGE_ID: AtomicU16 = AtomicU16::new(0);
+static TIME_BETWEEN_QUEUE_CHECK: usize = 2;
 
-trait RecvHandler {
+pub trait RecvHandler {
     fn on_recv(&self, data: Vec<u8>) -> impl Future<Output = ()> + Send + Sync;
 }
 
@@ -58,6 +61,8 @@ where
     socket_send: Arc<CustomSocket>,
     shared_ready: Arc<Notify>,
     shared_mem: Arc<Mutex<Option<(String, Data)>>>,
+    // ip port data
+    pub send_queue: Arc<Mutex<VecDeque<(String, u16,  Vec<u8>)>>>,
     pub timeout_handler: Arc<Mutex<TH>>,
     pub receive_handler: Arc<RH>,
 }
@@ -78,6 +83,7 @@ where
         socket_send.connect().await.unwrap();
 
         CustomServer {
+            send_queue: Arc::new(Mutex::new(VecDeque::new())),
             socket_recv: Arc::new(socket_recv),
             socket_send: Arc::new(socket_send),
             shared_ready,
@@ -99,6 +105,15 @@ where
         self.timeout_handler = Arc::new(Mutex::new(th));
     }
 
+    async fn send_from_queue(send_s: Arc<CustomSocket>, send_queue: Arc<Mutex<VecDeque<(String, u16,  Vec<u8>)>>>,) {
+        let mut sq = send_queue.lock().await;
+        //TODO potential deadlock waiting for socket and queue at the same time!!!!
+        while let Some(message) = sq.pop_front() {
+            MESSAGE_ID.fetch_add(1, SeqCst);
+            send_s.send(message.0, message.1, message.2, MESSAGE_ID.load(SeqCst).clone()).await.unwrap();
+        }
+    }
+
     pub async fn start(&self) {
         let socket_recv = self.socket_recv.clone();
         let timeout_handler = self.timeout_handler.clone();
@@ -108,6 +123,19 @@ where
                     socket_recv.recv(),
                     socket_recv.timeout_checker(timeout_handler),
             );
+            }
+        });
+
+        let send_queue = tokio::spawn({
+            let ss = self.socket_send.clone();
+            let sq = self.send_queue.clone();
+            async move {
+                loop {
+                    let ss = ss.clone();
+                    let sq = sq.clone();
+                    Self::send_from_queue(ss, sq).await;
+                    tokio::time::sleep(Duration::from_secs(TIME_BETWEEN_QUEUE_CHECK as u64)).await;
+                }
             }
         });
 
@@ -133,7 +161,7 @@ where
                 }
             }
         });
-        tokio::join!(recv_task, notify_task);
+        tokio::join!(recv_task, notify_task, send_queue);
     }
 
     pub async fn send(&self, addr: String, port: u16, buffer: Vec<u8>){
