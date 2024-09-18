@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU16};
 use std::sync::atomic::Ordering::SeqCst;
 use std::time::Duration;
 use CustomSocket_lib::*;
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, Notify, RwLock};
 use CustomSocket_lib::data::Data;
 use CustomSocket_lib::timeout_handler::TimeoutHandler;
 
@@ -64,7 +64,7 @@ where
     // ip port data
     pub send_queue: Arc<Mutex<VecDeque<(String, u16,  Vec<u8>)>>>,
     pub timeout_handler: Arc<Mutex<TH>>,
-    pub receive_handler: Arc<RH>,
+    pub receive_handler: Arc<RwLock<RH>>,
 }
 
 
@@ -89,7 +89,7 @@ where
             shared_ready,
             shared_mem,
             timeout_handler: Arc::new(Mutex::new(timeout_handler)),
-            receive_handler: Arc::new(receive_handler),
+            receive_handler: Arc::new(RwLock::new(receive_handler)),
         }
     }
 
@@ -98,18 +98,19 @@ where
     }
 
     pub fn set_receive_handler(&mut self, rh: RH) {
-        self.receive_handler = Arc::new(rh);
+        self.receive_handler = Arc::new(RwLock::new(rh));
     }
 
     pub fn set_timeout_handler(&mut self, th: TH) {
         self.timeout_handler = Arc::new(Mutex::new(th));
     }
 
-    async fn send_from_queue(send_s: Arc<CustomSocket>, send_queue: Arc<Mutex<VecDeque<(String, u16,  Vec<u8>)>>>,) {
+    async fn send_from_queue(send_s: Arc<CustomSocket>, send_queue: Arc<Mutex<VecDeque<(String, u16, Vec<u8>)>>>,) {
         let mut sq = send_queue.lock().await;
         //TODO potential deadlock waiting for socket and queue at the same time!!!!
         while let Some(message) = sq.pop_front() {
             MESSAGE_ID.fetch_add(1, SeqCst);
+            println!("Send to: {}:{}", message.0, message.1);
             send_s.send(message.0, message.1, message.2, MESSAGE_ID.load(SeqCst).clone()).await.unwrap();
         }
     }
@@ -153,7 +154,10 @@ where
                         println!("{}", ip);
                         //add passing a receiving handler
                         //let rh = self.receive_handler.clone();
-                        tokio::spawn(async move {rh.on_recv(data.buffer).await;});
+                        tokio::spawn(async move {
+                            let rh = rh.read().await;
+                            rh.on_recv(data.buffer).await;
+                        });
                     } else {
                         println!("Unexpected!!!!!!!!!");
                         panic!("WTF!!!!!!!");

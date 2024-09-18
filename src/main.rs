@@ -5,6 +5,7 @@ use tokio::io::{self, AsyncBufReadExt, BufReader};
 use CustomServer_lib::CustomServer;
 use CustomServer_lib::DefaultRecvHandler;
 use tokio::fs::File;
+use futures::future::join_all;
 use tokio::sync::{Mutex, Notify};
 use CustomSocket_lib::*;
 use CustomSocket_lib::timeout_handler::TimeoutHandler;
@@ -48,7 +49,7 @@ impl TimeoutHandler for MyTimeoutHandler {
 }
 #[tokio::main]
 async fn main() {
-    /*
+/*
     let mut futures: Vec<_> = vec![];
     for i in 0..100 {
         let future = async move {
@@ -72,9 +73,10 @@ async fn main() {
     println!("Sned");
     socket.send("127.0.0.1".to_string(), 8090, (1..50).collect(), 13).await.unwrap();
     println!("WOOOW");
-     */
+*/
+
     let file_path = "data12341234.txt";
-    //let file = File::create(file_path).await.expect("TODO: panic message");
+    let file = File::create(file_path).await.expect("TODO: panic message");
     //println!("{:?}", file.metadata().await.unwrap());
 
     let timeout_handler = MyTimeoutHandler::new();
@@ -140,7 +142,5 @@ async fn main() {
             tokio::time::sleep(Duration::from_secs(4)).await;
         }
     });
-
     tokio::join!(recv, send, another_thread);
-
 }
