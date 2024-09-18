@@ -179,11 +179,10 @@ impl CustomSocket {
                 let packets = Packet::vec_from_slice(buffer, MAGIC_CONST as u16, message_id);
                 println!("{:?}", packets);
                 for mut packet in packets {
-                    //TODO delete this shit, for checking!
-                    if !(packet.message_id == 3 && packet.packet_id == 2) {
-                        Self::send_packet(&mut packet, _socket, format!("{}:{}", addr, port).as_str()).await?;
-                        println!("Send one packet -> {:?}", packet.data);
-                    }
+
+                    Self::send_packet(&mut packet, _socket, format!("{}:{}", addr, port).as_str()).await?;
+                    println!("Send one packet -> {:?}", packet.data);
+
                 }
                 Ok(())
             }
