@@ -47,7 +47,7 @@ impl Packet {
             .my_zip(
                 (0..total_packets)
                     .map(|packet_id| {Packet::new(message_id, total_packets, packet_id)}),
-        |slice, mut packet| {packet.set_data(slice.to_vec()); packet});
+                |slice, mut packet| {packet.set_data(slice.to_vec()); packet});
 
 
         let slices: Vec<_> = slices.collect();

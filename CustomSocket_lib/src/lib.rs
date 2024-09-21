@@ -1,4 +1,4 @@
-mod packet;
+pub mod packet;
 pub mod data;
 pub mod timeout_handler;
 
