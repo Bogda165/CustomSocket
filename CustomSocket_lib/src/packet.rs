@@ -31,6 +31,7 @@ impl Packet {
     pub fn vec_from_slice(slice: Vec<u8>, packet_size: u16, message_id: u16) -> Vec<Packet> {
         let size = slice.len();
         let total_packets: u16 = (size / packet_size as usize + if size % packet_size as usize != 0 { 1usize } else {0usize}) as u16 ;
+        #[cfg(debug_assertions)]
         println!("total_packets: {}", total_packets);
 
         // THE OLD WAY ))))

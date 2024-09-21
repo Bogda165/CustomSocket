@@ -161,6 +161,7 @@ impl CustomSocket {
     }
 
     async fn send_packet(packet: &mut Packet, sender: &UdpSocket, receiver: &str) -> Result<(), Error> {
+        #[cfg(debug_assertions)]
         println!("{:?}", packet);
         let data = packet.serialize();
 
@@ -177,10 +178,12 @@ impl CustomSocket {
             }
             Some(ref _socket) => {
                 let packets = Packet::vec_from_slice(buffer, MAGIC_CONST as u16, message_id);
+                #[cfg(debug_assertions)]
                 println!("{:?}", packets);
                 for mut packet in packets {
 
                     Self::send_packet(&mut packet, _socket, format!("{}:{}", addr, port).as_str()).await?;
+                    #[cfg(debug_assertions)]
                     println!("Send one packet -> {:?}", packet.data);
 
                 }
@@ -202,6 +205,7 @@ async fn handler(
 ) -> Result<(), Error>
 {
     let packet = Packet::deserialize(buffer);
+    #[cfg(debug_assertions)]
     println!("{:?}", packet);
     let packet_a = packet.total_packets;
     //println!("Received from raw socket: {:?}", packet.data);
@@ -235,6 +239,7 @@ async fn handler(
                 let mut timeout = timeout.lock().await;
                 timeout.remove(&message_id);
             }
+            #[cfg(debug_assertions)]
             println!("Foud zero in hasp map");
             match messages.remove(&message_id) {
                 None => {
@@ -251,6 +256,7 @@ async fn handler(
                             }
                             drop(share_mem);
                             //tokio::time::sleep(Duration::from_secs(1)).await;
+                            #[cfg(debug_assertions)]
                             println!("Here could be an error!!!");
                         }
                         let mut share_mem = share_mem.lock().await;
@@ -262,6 +268,7 @@ async fn handler(
             //println!("Notify send");
         }
         false => {
+            #[cfg(debug_assertions)]
             println!("remain {} packets to finish message", packet_a);
         }
     }

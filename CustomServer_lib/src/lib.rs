@@ -148,6 +148,7 @@ where
                 loop {
                     let rh =  rh.clone();
                     shared_ready.notified().await;
+                    #[cfg(debug_assertions)]
                     println!("Notified");
                     let mut shared_mem = shared_mem.lock().await;
                     if let Some((ip, data)) = shared_mem.take() {
